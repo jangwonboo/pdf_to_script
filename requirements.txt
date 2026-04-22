@@ -1,0 +1,6 @@
+google-genai
+anthropic
+python-dotenv
+PyMuPDF
+Pillow
+certifi
