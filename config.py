@@ -8,7 +8,7 @@ from prompts import DEFAULT_SYSTEM_PROMPT
 @dataclass(frozen=True)
 class GeneratorConfig:
     model_name: str = "gemini-2.5-flash"
-    claude_model_name: str = "claude-3-5-sonnet-latest"
+    claude_model_name: str = "claude-3-5-sonnet-20241022"
     temperature: float = 0.2
     max_retries: int = 3
     retry_delay_sec: int = 3

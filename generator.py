@@ -114,10 +114,10 @@ class PresentationScriptGenerator:
             raise ValueError(f"start_page는 1 이상이어야 합니다: {start}")
         if end < 1:
             raise ValueError(f"end_page는 1 이상이어야 합니다: {end}")
-        if start > end:
-            raise ValueError(f"start_page({start})가 end_page({end})보다 클 수 없습니다.")
         if start > total_pages:
             return total_pages + 1, total_pages
+        if start > end:
+            raise ValueError(f"start_page({start})가 end_page({end})보다 클 수 없습니다.")
 
         return start, min(end, total_pages)
 
@@ -345,11 +345,27 @@ class PresentationScriptGenerator:
         if claude_markdown_path == markdown_path:
             claude_markdown_path = markdown_path.with_name(f"{markdown_path.stem}_claude.md")
 
-        with open(claude_markdown_path, "w", encoding="utf-8") as out_file:
-            if title:
-                out_file.write(f"{title}\n\n")
+        last_claude_page = self._extract_last_completed_page(claude_markdown_path)
+        if last_claude_page > 0:
+            logger.info(
+                "기존 Claude 진행 상태 감지: 마지막 완료 페이지=%s, %s페이지부터 이어서 생성",
+                last_claude_page,
+                last_claude_page + 1,
+            )
 
-            for section in sections:
+        pending_sections = [section for section in sections if int(section["page_num"]) > last_claude_page]
+        if not pending_sections:
+            logger.info("Claude 개선본도 새로 생성할 페이지가 없습니다. 기존 결과를 유지합니다.")
+            return claude_markdown_path
+
+        file_mode = "a" if claude_markdown_path.exists() and last_claude_page > 0 else "w"
+        with open(claude_markdown_path, file_mode, encoding="utf-8") as out_file:
+            if file_mode == "w" and title:
+                out_file.write(f"{title}\n\n")
+            elif file_mode == "a" and claude_markdown_path.stat().st_size > 0:
+                out_file.write("\n")
+
+            for section in pending_sections:
                 resolved_image_path = (markdown_path.parent / str(section["image_path"])).resolve()
                 section["resolved_image_path"] = str(resolved_image_path)
                 improved_header, improved_body = self._improve_section_with_claude(client, section)
@@ -374,40 +390,57 @@ class PresentationScriptGenerator:
 
         section_text = str(section["raw_text"])
         page_num = int(section["page_num"])
-        response = client.messages.create(
-            model=self.config.claude_model_name,
-            max_tokens=1800,
-            temperature=self.config.temperature,
-            system=(
-                "You are a senior executive speechwriter. Improve the script quality while preserving the same markdown "
-                "output structure. Keep the page header format (`#### Page N — ... (⏱ ~... min)`), keep hierarchical "
-                "bullet points, and do not use checkbox/task markers like [ ] or [] at the start of bullets. "
-                "Do not add commentary outside the markdown for this page."
-            ),
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"Page number: {page_num}\n"
-                                "Below is the current markdown section for one slide. Improve clarity, executive tone, "
-                                "and logical flow, but keep the same structure:\n\n"
-                                f"{section_text}\n"
-                            ),
-                        },
-                        {
-                            "type": "image",
-                            "source": {"type": "base64", "media_type": media_type, "data": image_b64},
-                        },
-                    ],
-                }
-            ],
-        )
+        claude_model = os.getenv("ANTHROPIC_MODEL", self.config.claude_model_name).strip()
+        if not claude_model:
+            raise ValueError("ANTHROPIC_MODEL이 비어 있습니다. 유효한 모델명을 지정하세요.")
+
+        try:
+            response = client.messages.create(
+                model=claude_model,
+                max_tokens=1800,
+                temperature=self.config.temperature,
+                system=(
+                    "You are a senior executive speechwriter. Improve the script quality while preserving the same markdown "
+                    "output structure. Keep the page header format (`#### Page N — ... (⏱ ~... min)`), keep hierarchical "
+                    "bullet points, and do not use checkbox/task markers like [ ] or [] at the start of bullets. "
+                    "Do not add commentary outside the markdown for this page."
+                ),
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    f"Page number: {page_num}\n"
+                                    "Below is the current markdown section for one slide. Improve clarity, executive tone, "
+                                    "and logical flow, but keep the same structure:\n\n"
+                                    f"{section_text}\n"
+                                ),
+                            },
+                            {
+                                "type": "image",
+                                "source": {"type": "base64", "media_type": media_type, "data": image_b64},
+                            },
+                        ],
+                    }
+                ],
+            )
+        except anthropic.NotFoundError as exc:
+            raise ValueError(
+                f"Claude 모델을 찾을 수 없습니다: {claude_model}. "
+                "계정에서 사용 가능한 모델로 ANTHROPIC_MODEL(.env) 값을 변경하세요."
+            ) from exc
         content_text = self._extract_claude_text(response)
         header_line, body = split_script_header(content_text, page_num)
-        return header_line, body
+        cleaned_body_lines: list[str] = []
+        for line in body.splitlines():
+            # Claude가 이미지 태그를 다시 출력해도 최종 파일에서는 코드가 단일 이미지 태그만 쓰도록 정리
+            if re.match(r"^\s*!\[Slide\s+\d+\]\((.+)\)\s*$", line):
+                continue
+            cleaned_body_lines.append(line)
+        cleaned_body = "\n".join(cleaned_body_lines).strip()
+        return header_line, cleaned_body
 
     @staticmethod
     def _extract_claude_text(response) -> str:

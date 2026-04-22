@@ -47,7 +47,7 @@ run.bat .\sample.pdf --verbose --log-file .\logs\run.log
 - `--insecure`: SSL 인증서 검증 비활성화(임시 테스트 용도)
 - `--improve-with-claude`: Gemini 생성본을 Claude가 이미지+텍스트를 참고해 개선한 `*_claude.md` 추가 생성
 
-기본적으로 같은 출력 파일이 이미 존재하면, 완료된 마지막 페이지(`---`로 닫힌 페이지)를 감지해 다음 페이지부터 이어서 생성합니다.
+기본적으로 같은 출력 파일이 이미 존재하면, 완료된 마지막 페이지(`---`로 닫힌 페이지)를 감지해 다음 페이지부터 이어서 생성합니다( `*_gemini.md`, `*_claude.md` 모두 동일).
 
 ## 출력 결과
 
@@ -59,12 +59,14 @@ run.bat .\sample.pdf --verbose --log-file .\logs\run.log
 
 - `.env` 파일 또는 시스템 환경 변수에 `GOOGLE_API_KEY`를 두거나, 루트의 `service_account.json`을 사용합니다.
 - Claude 개선 옵션 사용 시 `.env` 또는 시스템 환경 변수에 `ANTHROPIC_API_KEY`가 필요합니다.
+- Claude 모델 변경이 필요하면 `.env`에 `ANTHROPIC_MODEL`을 지정하세요 (기본값: `claude-3-5-sonnet-20241022`).
 
 예시:
 
 ```env
 GOOGLE_API_KEY=your_api_key_here
 ANTHROPIC_API_KEY=your_claude_api_key_here
+ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 ```
 
 ## 트러블슈팅 (SSL 인증서 오류)
